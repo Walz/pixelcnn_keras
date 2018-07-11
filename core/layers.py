@@ -1,11 +1,10 @@
 import os
 
-from keras.layers import Input, Dense, merge
+from keras.layers import Input, Dense, Multiply, Add, ZeroPadding2D, Conv2D
 from keras.layers.core import Activation, Reshape, Lambda
 from keras.models import Model, load_model
 from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping
 
-from keras.layers.convolutional import Convolution2D, ZeroPadding2D
 
 from keras import backend as K
 
@@ -52,7 +51,7 @@ class GatedCNN(object):
             xW = Lambda(self._crop_right, name='h_crop_right_'+str(layer_idx))(xW)
 
         if self.v_map is not None:
-            xW = merge([xW, self.v_map], mode='sum', name='h_merge_v_'+str(layer_idx))
+            xW = Add(name='h_merge_v_'+str(layer_idx))([xW, self.v_map])
         
         if self.h is not None:
             hV = Dense(output_dim=2*self.nb_filters, name=stack_tag+'_dense_latent_'+str(layer_idx))(self.h)
@@ -66,7 +65,7 @@ class GatedCNN(object):
         xW_f = Lambda(lambda x: K.tanh(x), name=stack_tag+'_tanh_'+str(layer_idx))(xW_f)
         xW_g = Lambda(lambda x: K.sigmoid(x), name=stack_tag+'_sigmoid_'+str(layer_idx))(xW_g)
 
-        res = merge([xW_f, xW_g], mode='mul', name=stack_tag+'_merge_gate_'+str(layer_idx))
+        res = Multiply(name=stack_tag+'_merge_gate_'+str(layer_idx))([xW_f, xW_g])
         #print(type(res), K.int_shape(res), hasattr(res, '_keras_history'))
         return res
 
@@ -132,14 +131,14 @@ class PixelCNN(object):
 
     def _masked_conv(self, x, filter_size, stack_name, layer_idx, mask_type='B'):
         if stack_name == 'vertical':
-            res = ZeroPadding2D(padding=(filter_size[0]//2, 0, filter_size[1]//2, filter_size[1]//2), name='v_pad_'+str(layer_idx))(x)
-            res = Convolution2D(2*self.nb_filters, filter_size[0]//2+1, filter_size[1], border_mode='valid', name='v_conv_'+str(layer_idx))(res)
+            res = ZeroPadding2D(padding=((filter_size[0]//2, 0), (filter_size[1]//2, filter_size[1]//2)), name='v_pad_'+str(layer_idx))(x)
+            res = Conv2D(2*self.nb_filters, (filter_size[0]//2+1, filter_size[1]), padding='valid', name='v_conv_'+str(layer_idx))(res)
         elif stack_name == 'horizontal':
-            res = ZeroPadding2D(padding=(0, 0, filter_size[1]//2, 0), name='h_pad_'+str(layer_idx))(x)
+            res = ZeroPadding2D(padding=((0, 0), (filter_size[1]//2, 0)), name='h_pad_'+str(layer_idx))(x)
             if mask_type == 'A':
-                res = Convolution2D(2*self.nb_filters, 1, filter_size[1]//2, border_mode='valid', name='h_conv_'+str(layer_idx))(res)
+                res = Conv2D(2*self.nb_filters, (1, filter_size[1]//2), padding='valid', name='h_conv_'+str(layer_idx))(res)
             else:
-                res = Convolution2D(2*self.nb_filters, 1, filter_size[1]//2+1, border_mode='valid', name='h_conv_'+str(layer_idx))(res)
+                res = Conv2D(2*self.nb_filters, (1, filter_size[1]//2+1), padding='valid', name='h_conv_'+str(layer_idx))(res)
 
         return res
 
@@ -147,14 +146,14 @@ class PixelCNN(object):
     @staticmethod
     def _shift_down(x):
         x_shape = K.int_shape(x)
-        x = ZeroPadding2D(padding=(1,0,0,0))(x)
+        x = ZeroPadding2D(padding=((1,0),(0,0)))(x)
         x = Lambda(lambda x: x[:,:x_shape[1],:,:])(x)
         return x
 
     def _feed_v_map(self, x, layer_idx):
         ### shifting down feature maps
         x = Lambda(self._shift_down, name='v_shift_down'+str(layer_idx))(x)
-        x = Convolution2D(2*self.nb_filters, 1, 1, border_mode='valid', name='v_1x1_conv_'+str(layer_idx))(x)
+        x = Conv2D(2*self.nb_filters, (1, 1), padding='valid', name='v_1x1_conv_'+str(layer_idx))(x)
         return x
 
 
@@ -174,7 +173,7 @@ class PixelCNN(object):
         ### Mask A is applied to the first layer (achieved by cropping), and v_feed_maps are merged. 
         h_stack_out = GatedCNN(self.nb_filters, 'horizontal', v_map=v_feed_map, h=self.h, crop_right=True)(h_masked_map, 0)
         ### not residual connection in the first layer.
-        h_stack_out = Convolution2D(self.nb_filters, 1, 1, border_mode='valid', name='h_1x1_conv_0')(h_stack_out)
+        h_stack_out = Conv2D(self.nb_filters, (1, 1), padding='valid', name='h_1x1_conv_0')(h_stack_out)
 
         # subsequent PixelCNN layers
         for i in range(1, self.nb_pixelcnn_layers):
@@ -186,22 +185,22 @@ class PixelCNN(object):
             h_masked_map = self._masked_conv(h_stack_out, self.filter_size, 'horizontal', i)
             ### Mask B is applied to the subsequent layers.
             h_stack_out = GatedCNN(self.nb_filters, 'horizontal', v_map=v_feed_map, h=self.h)(h_masked_map, i)
-            h_stack_out = Convolution2D(self.nb_filters, 1, 1, border_mode='valid', name='h_1x1_conv_'+str(i))(h_stack_out)
+            h_stack_out = Conv2D(self.nb_filters, (1, 1), padding='valid', name='h_1x1_conv_'+str(i))(h_stack_out)
             ### residual connection
-            h_stack_out = merge([h_stack_out, h_stack_out_prev], mode='sum', name='h_residual_'+str(i))
+            h_stack_out = Add(name='h_residual_'+str(i))([h_stack_out, h_stack_out_prev])
 
         # (1x1) convolution layers (2 layers)
         for i in range(2):
-            h_stack_out = Convolution2D(self.nb_filters, 1, 1, activation='relu', border_mode='valid', name='penultimate_convs'+str(i))(h_stack_out)
+            h_stack_out = Conv2D(self.nb_filters, (1, 1), activation='relu', padding='valid', name='penultimate_convs'+str(i))(h_stack_out)
         
         # Softmax layer (256-way for each RGB color (natural image) or sigmoid for each pixel (MNIST))
         if self.nb_channels == 1:
-            res = Convolution2D(1, 1, 1, activation='sigmoid', border_mode='valid')(h_stack_out)
+            res = Conv2D(1, (1, 1), activation='sigmoid', padding='valid')(h_stack_out)
             #res = Reshape((self.input_size[0]*self.input_size[1], 1))(res)
             return res
         elif self.nb_channels == 3:
             ### 256-way * 3(channels) = 768
-            res = Convolution2D(768, nb_row=1, nb_col=1, border_mode='valid')(h_stack_out)
+            res = Conv2D(768, (1, 1), padding='valid')(h_stack_out)
             res = Reshape((self.input_size[0] * self.input_size[1] * 3, 256))(res)
             return Activation('softmax')(res)
         else:

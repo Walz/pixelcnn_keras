@@ -120,6 +120,8 @@ class Utils(object):
             if H is not None:
                 h = np.zeros((batch_size, nb_classes))
                 H = np_utils.to_categorical(H, nb_classes)
+            else:
+                h = None
 
             batch_idx = 0
             shuffled_index = list(range(len(X)))
