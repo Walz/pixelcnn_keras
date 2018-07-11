@@ -54,7 +54,7 @@ class GatedCNN(object):
             xW = Add(name='h_merge_v_'+str(layer_idx))([xW, self.v_map])
         
         if self.h is not None:
-            hV = Dense(output_dim=2*self.nb_filters, name=stack_tag+'_dense_latent_'+str(layer_idx))(self.h)
+            hV = Dense(units=2*self.nb_filters, name=stack_tag+'_dense_latent_'+str(layer_idx))(self.h)
             hV = Reshape((1, 1, 2*self.nb_filters), name=stack_tag+'_reshape_latent_'+str(layer_idx))(hV)
             #xW = merge([xW, hV], mode=lambda x: x[0]+x[1])
             xW = Lambda(lambda x: x[0]+x[1], name=stack_tag+'_merge_latent_'+str(layer_idx))([xW,hV])
@@ -217,7 +217,7 @@ class PixelCNN(object):
         if self.conditional:
             latent_vector = Input(shape=(self.latent_dim,), name='latent_vector')
             predicted = self._build_layers(input_img, latent_vector)
-            self.model = Model(input=[input_img, latent_vector], output=predicted)
+            self.model = Model(inputs=[input_img, latent_vector], outputs=predicted)
         else:
             predicted = self._build_layers(input_img)
             self.model = Model(input_img, predicted)
