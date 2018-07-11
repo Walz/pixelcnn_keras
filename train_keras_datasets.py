@@ -10,7 +10,7 @@ import numpy as np
 from core.layers import PixelCNN
 from core.utils import Utils
 
-from keras.utils.visualize_util import plot
+from keras.utils import plot_model as plot
 
 
 def train(argv=None):
