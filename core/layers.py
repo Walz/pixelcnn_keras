@@ -193,18 +193,13 @@ class PixelCNN(object):
         for i in range(2):
             h_stack_out = Conv2D(self.nb_filters, (1, 1), activation='relu', padding='valid', name='penultimate_convs'+str(i))(h_stack_out)
         
-        # Softmax layer (256-way for each RGB color (natural image) or sigmoid for each pixel (MNIST))
-        if self.nb_channels == 1:
-            res = Conv2D(1, (1, 1), activation='sigmoid', padding='valid')(h_stack_out)
-            #res = Reshape((self.input_size[0]*self.input_size[1], 1))(res)
-            return res
-        elif self.nb_channels == 3:
-            ### 256-way * 3(channels) = 768
-            res = Conv2D(768, (1, 1), padding='valid')(h_stack_out)
-            res = Reshape((self.input_size[0] * self.input_size[1] * 3, 256))(res)
-            return Activation('softmax')(res)
+        # Softmax layer (256-way for each channel
+        res = Conv2D(256 * self.nb_channels, (1, 1), padding='valid')(h_stack_out)
+        if self.nb_channels > 1:
+            res = Reshape((self.input_size[0], self.input_size[1], self.nb_channels, 256))(res)
         else:
-            return None
+            res = Reshape((self.input_size[0], self.input_size[1], 256))(res)
+        return Activation('softmax')(res)
 
 
     def build_model(self):
